@@ -28,6 +28,14 @@ except ImportError:  # pragma: no cover - environment guard
 
 # --- house style -------------------------------------------------------------
 RED, GREEN, MUTED, PAGE_BG = (204, 41, 41), (21, 128, 61), (107, 114, 128), (243, 244, 246)
+
+# --- measurement tuning ------------------------------------------------------
+CELL = 8          # cluster grid; finer than this just tracks antialiasing
+MERGE_CELLS = 2   # bridge gaps up to 2 cells so one word stays one cluster
+KEEP_RATIO = 0.18  # a cluster lighter than this share of the main one is noise
+ROW_GAP = 4       # px a quiet band must span to count as a line break
+COL_GAP = 10      # px a quiet band must span to count as a component boundary
+MERGE_PX = 64     # boxes nearer than this on both axes are one region, not two
 LBL_BEFORE, LBL_AFTER = "BEFORE", "AFTER"  # same wording compose.sh burns into the video
 BAND_H, BAND_FS = 62, 26
 
@@ -56,15 +64,103 @@ def font(size, bold=True):
 
 
 # --- measurement -------------------------------------------------------------
-def diff_box(before, after, threshold=24):
-    """Bounding box of everything that changed, ignoring antialiasing jitter.
+def diff_mask(before, after, threshold=24):
+    """Binary mask of everything that changed, ignoring antialiasing jitter.
 
-    A raw getbbox() on the difference catches sub-pixel text rendering noise and
-    would happily return the whole page. Thresholding first keeps the box on the
-    real change.
+    A raw difference catches sub-pixel text rendering noise and would happily
+    cover the whole page. Thresholding first keeps the mask on the real change.
     """
     d = ImageChops.difference(before, after).convert("L")
-    return d.point(lambda p: 255 if p > threshold else 0).getbbox()
+    return d.point(lambda p: 255 if p > threshold else 0)
+
+
+def diff_clusters(mask, cell=CELL, merge=MERGE_CELLS):
+    """Connected components of the diff mask, heaviest first.
+
+    getbbox() over the whole mask returns the union of everything that changed.
+    Two unrelated changes — the edited label, and a relative timestamp that ticked
+    over while the capture ran — then yield one box bracketing every untouched
+    element between them, and a reviewer reads that as "these changed too".
+    Components keep them apart.
+
+    Grouping happens on a coarse grid so a word is one cluster and not one per
+    glyph; the returned box is then re-measured on the full-resolution mask, so
+    the grid groups but never inflates.
+    """
+    w, h = mask.size
+    gw, gh = max(1, -(-w // cell)), max(1, -(-h // cell))
+    small = mask.resize((gw, gh), Image.BOX)
+    px = small.load()
+    sx, sy = w / float(gw), h / float(gh)
+    live = {(x, y) for y in range(gh) for x in range(gw) if px[x, y]}
+    seen, out = set(), []
+    for start in live:
+        if start in seen:
+            continue
+        stack, comp = [start], []
+        seen.add(start)
+        while stack:
+            cx, cy = stack.pop()
+            comp.append((cx, cy))
+            for dx in range(-merge, merge + 1):
+                for dy in range(-merge, merge + 1):
+                    nb = (cx + dx, cy + dy)
+                    if nb in live and nb not in seen:
+                        seen.add(nb)
+                        stack.append(nb)
+        xs, ys = [c[0] for c in comp], [c[1] for c in comp]
+        coarse = (int(min(xs) * sx), int(min(ys) * sy),
+                  min(w, int((max(xs) + 1) * sx) + 1), min(h, int((max(ys) + 1) * sy) + 1))
+        exact = mask.crop(coarse).getbbox()
+        if not exact:
+            continue
+        out.append((sum(px[x, y] for x, y in comp),
+                    (coarse[0] + exact[0], coarse[1] + exact[1],
+                     coarse[0] + exact[2], coarse[1] + exact[3])))
+    out.sort(key=lambda t: -t[0])
+    return out
+
+
+def merge_boxes(boxes, gap=MERGE_PX):
+    """Fuse expanded boxes that sit within the same region of the page.
+
+    Clustering answers "which pixels changed together". This answers the different
+    question "how many marks should a reviewer see". Seven rectangles down one
+    redesigned panel is not seven findings, it is one; two marks four hundred
+    pixels apart really are two. Merging is by edge distance, so boxes that touch
+    or nearly touch collapse and distant ones stay separate.
+    """
+    out = list(boxes)
+    fused = True
+    while fused:
+        fused = False
+        for i in range(len(out)):
+            for j in range(i + 1, len(out)):
+                a, b = out[i], out[j]
+                if (max(0, max(a[0], b[0]) - min(a[2], b[2])) <= gap
+                        and max(0, max(a[1], b[1]) - min(a[3], b[3])) <= gap):
+                    out[i] = (min(a[0], b[0]), min(a[1], b[1]),
+                              max(a[2], b[2]), max(a[3], b[3]))
+                    del out[j]
+                    fused = True
+                    break
+            if fused:
+                break
+    return sorted(out, key=lambda b: (b[1], b[0]))
+
+
+def select_clusters(clusters, keep_ratio=KEEP_RATIO):
+    """Split clusters into the ones worth marking and the ones that are noise.
+
+    Kept by share of the heaviest cluster, not by absolute size: what counts as
+    negligible depends on how big the real change is. The list is already sorted,
+    so the kept set is a prefix.
+    """
+    if not clusters:
+        return [], []
+    cut = keep_ratio * clusters[0][0]
+    keep = [c for c in clusters if c[0] >= cut]
+    return keep, clusters[len(keep):]
 
 
 def content_bottom(img, margin=24):
@@ -137,17 +233,25 @@ def quiet_cols(img, y0, y1, tol=12, noise=0.01):
     return out
 
 
-def edge_out(v, quiet, direction, limit):
-    """First uniform row/column outward from v.
+def edge_out(v, quiet, direction, limit, min_gap=1):
+    """First uniform row/column outward from v that is at least min_gap wide.
 
     Deliberately not snap(): that rides a quiet run to its far end, which is what a
     crop edge wants and the opposite of what a highlight box wants. Riding the run
     would walk the box across the whole empty gutter and out to the page margin.
+
+    The width test is what keeps the box off the inside of an element. A one-pixel
+    quiet column also sits between two glyphs and inside the padding of a pill, so
+    stopping at the first one cuts the pill in half just before its icon. Only a
+    gap wide enough to separate two components ends the expansion.
     """
     n = len(quiet)
     for d in range(0, limit + 1):
         cand = v + direction * d
-        if 0 <= cand < n and quiet[cand]:
+        if not (0 <= cand < n and quiet[cand]):
+            continue
+        if all(0 <= cand + direction * k < n and quiet[cand + direction * k]
+               for k in range(min_gap)):
             return cand
     return max(0, min(n - 1, v))
 
@@ -162,11 +266,11 @@ def whole_lines(box, img, w, h, limit=260):
     it stops at the first uniform gap in each direction.
     """
     rows = quiet_rows(img, box[0], box[2])
-    top = edge_out(box[1], rows, -1, limit)
-    bottom = edge_out(box[3], rows, +1, limit)
+    top = edge_out(box[1], rows, -1, limit, ROW_GAP)
+    bottom = edge_out(box[3], rows, +1, limit, ROW_GAP)
     cols = quiet_cols(img, top, bottom)
-    left = edge_out(box[0], cols, -1, limit)
-    right = edge_out(box[2], cols, +1, limit)
+    left = edge_out(box[0], cols, -1, limit, COL_GAP)
+    right = edge_out(box[2], cols, +1, limit, COL_GAP)
     return (max(0, left), max(0, top), min(w, right), min(h, bottom))
 
 
@@ -219,13 +323,21 @@ def snap(y, quiet, direction, limit=150, edge_pull=90):
 
 
 # --- drawing primitives ------------------------------------------------------
+def as_boxes(box):
+    """One box or a list of them — callers pass whichever the variant needs."""
+    if not box:
+        return []
+    return [box] if isinstance(box[0], (int, float)) else list(box)
+
+
 def boxed(img, color, box, width=3):
     im = img.copy()
     d = ImageDraw.Draw(im, "RGBA")
-    for grow, alpha in ((9, 26), (6, 34), (3, 46)):  # soft halo, readable on light UI
-        d.rounded_rectangle([box[0] - grow, box[1] - grow, box[2] + grow, box[3] + grow],
-                            radius=7 + grow, outline=color + (alpha,), width=3)
-    d.rounded_rectangle(box, radius=6, outline=color, width=width)
+    for b in as_boxes(box):
+        for grow, alpha in ((9, 26), (6, 34), (3, 46)):  # soft halo, readable on light UI
+            d.rounded_rectangle([b[0] - grow, b[1] - grow, b[2] + grow, b[3] + grow],
+                                radius=7 + grow, outline=color + (alpha,), width=3)
+        d.rounded_rectangle(b, radius=6, outline=color, width=width)
     return im
 
 
@@ -272,6 +384,10 @@ def shift(box, crop, scale=1):
                                      box[2] - crop[0], box[3] - crop[1]))
 
 
+def shift_all(boxes, crop, scale=1):
+    return [shift(b, crop, scale) for b in as_boxes(boxes)]
+
+
 def labelled_pair(b_img, a_img, box, sub_b="", sub_a="", gap=24, pad=24, fs=BAND_FS, width=3):
     b = stack([band(b_img.width, LBL_BEFORE, sub_b, RED, fs=fs),
                boxed(b_img, RED, box, width) if box else b_img])
@@ -296,14 +412,39 @@ def build(issue_dir):
         return 4
 
     w, h = before.size
-    raw = diff_box(before, after)
-    if raw is None:
+    mask = diff_mask(before, after)
+    if mask.getbbox() is None:
         print("variants skipped: before and after are pixel-identical — nothing to mark",
               file=sys.stderr)
         return 4
 
-    area_ratio = ((raw[2] - raw[0]) * (raw[3] - raw[1])) / float(w * h)
-    box = pad_box(whole_lines(pad_box(raw, w, h), after, w, h), w, h, 4, 4, 3, 3)
+    keep, dropped = select_clusters(diff_clusters(mask))
+    # One expanded box per surviving cluster, then fused into regions. Drawn
+    # separately, so two changes at opposite ends of the page mark both spots
+    # instead of everything in between.
+    grown = [pad_box(whole_lines(pad_box(b, w, h), after, w, h), w, h, 4, 4, 3, 3)
+             for _, b in keep]
+    boxes = merge_boxes(grown)
+    # Said out loud, never silently: a dropped cluster is a real pixel change the
+    # reviewer is not being shown, and a wrongly dropped one would otherwise be an
+    # invisible bug. Only report the ones no drawn box covers — a light cluster
+    # inside the marked region is already on screen.
+    loose = [b for _, b in dropped
+             if not any(m[0] <= b[0] and m[1] <= b[1] and m[2] >= b[2] and m[3] >= b[3]
+                        for m in boxes)]
+    if loose:
+        print("variants: %d changed region(s) left unmarked, each under %d%% of the main "
+              "change (%s)" % (len(loose), int(KEEP_RATIO * 100),
+                               "; ".join("%dx%d at %d,%d" % (b[2] - b[0], b[3] - b[1], b[0], b[1])
+                                         for b in loose[:4])), file=sys.stderr)
+    # The union drives crop geometry only; it is never what gets drawn.
+    box = (min(b[0] for b in boxes), min(b[1] for b in boxes),
+           max(b[2] for b in boxes), max(b[3] for b in boxes))
+    # The zoom variants are about one thing: the region holding the heaviest cluster.
+    main = next(b for b in boxes
+                if b[0] <= grown[0][0] and b[1] <= grown[0][1]
+                and b[2] >= grown[0][2] and b[3] >= grown[0][3])
+    area_ratio = ((box[2] - box[0]) * (box[3] - box[1])) / float(w * h)
     # Focus column: from just left of the change to the right edge, so the crop
     # keeps the full row including its trailing action buttons. Clamped to real
     # content further down — see the card crop.
@@ -325,12 +466,14 @@ def build(issue_dir):
     # it is the only variant that still shows toasts, tabs and surrounding state.
     page = (0, 0, w, max(content_bottom(after), box[3] + 60))
     save("01-full-view.png",
-         labelled_pair(before.crop(page), after.crop(page), shift(box, page)))
+         labelled_pair(before.crop(page), after.crop(page), shift_all(boxes, page)))
 
     if not wide_change:
         # 02 — the change plus enough neighbours to compare against. Vertical
         # context scales with the change so a tall diff is not cropped in half.
-        ctx_v = max(200, 8 * (box[3] - box[1]))
+        # Capped at ~3x the change: without a ceiling a tall box turns the context
+        # view into a second full-page shot, which 01 already is.
+        ctx_v = min(max(200, 8 * (box[3] - box[1])), 3 * (box[3] - box[1]) + 200)
         top = snap(max(0, box[1] - ctx_v), quiet, -1)
         bottom = min(page[3], snap(min(h, box[3] + ctx_v), quiet, +1))
         # The 140px focus offset is meant to drop empty left margin. On a page
@@ -338,7 +481,7 @@ def build(issue_dir):
         # is clamped to the leftmost pixel that actually carries something.
         card = (min(fx0, content_left(after, top, bottom)), top, w, bottom)
         b_card, a_card = before.crop(card), after.crop(card)
-        save("02-context.png", labelled_pair(b_card, a_card, shift(box, card)))
+        save("02-context.png", labelled_pair(b_card, a_card, shift_all(boxes, card)))
 
         # 03 — the changed line alone, magnified. Smallest file, largest type.
         # No vertical padding: whole_lines() already put box[1]/box[3] on the
@@ -348,20 +491,20 @@ def build(issue_dir):
         # Horizontally, 60px of lead-in is wanted only when it is empty space. Take
         # it by walking INWARD from box[0]-60 to the first uniform column, so the
         # cut lands in a gutter instead of slicing a glyph or a neighbouring column.
-        zcols = quiet_cols(after, box[1], box[3])
-        tight = (edge_out(max(0, box[0] - 60), zcols, +1, 60), box[1],
-                 min(w, box[2] + 300), box[3])
+        zcols = quiet_cols(after, main[1], main[3])
+        tight = (edge_out(max(0, main[0] - 60), zcols, +1, 60, COL_GAP), main[1],
+                 min(w, main[2] + 300), main[3])
         scale = max(1, min(4, round(1400 / max(1, tight[2] - tight[0]))))
         b_z, a_z = (i.crop(tight).resize(((tight[2] - tight[0]) * scale,
                                           (tight[3] - tight[1]) * scale), Image.LANCZOS)
                     for i in (before, after))
         save("03-line-zoom.png",
-             labelled_pair(b_z, a_z, shift(box, tight, scale), gap=20, pad=28, fs=30, width=4))
+             labelled_pair(b_z, a_z, shift(main, tight, scale), gap=20, pad=28, fs=30, width=4))
 
         # 05 — context plus a 3x readout of the line, for when the marked text is
         # too small to read at page scale but the surrounding state still matters.
         zs = 3
-        lens = (max(0, box[0] - 4), box[1], min(w, box[2] + 4), box[3])
+        lens = (max(0, main[0] - 4), main[1], min(w, main[2] + 4), main[3])
         b_l, a_l = (i.crop(lens).resize(((lens[2] - lens[0]) * zs, (lens[3] - lens[1]) * zs),
                                         Image.LANCZOS) for i in (before, after))
 
@@ -372,7 +515,7 @@ def build(issue_dir):
             ImageDraw.Draw(cap).text((2, 8), text, font=font(26), fill=color)
             return stack([cap, inner])
 
-        top = labelled_pair(b_card, a_card, shift(box, card), pad=0)
+        top = labelled_pair(b_card, a_card, shift_all(boxes, card), pad=0)
         strip = frame(stack([callout(b_l, LBL_BEFORE, RED),
                              callout(a_l, LBL_AFTER, GREEN)], gap=20),
                       pad=18, bg=(255, 255, 255))
@@ -387,7 +530,7 @@ def build(issue_dir):
         frames = []
         for img, color, label in ((b_card, RED, LBL_BEFORE), (a_card, GREEN, LBL_AFTER)):
             f_img = stack([band(img.width, label, "", color, h=54, fs=24),
-                           boxed(img, color, shift(box, card))])
+                           boxed(img, color, shift_all(boxes, card))])
             if f_img.width > 1200:
                 f_img = f_img.resize((1200, round(f_img.height * 1200 / f_img.width)),
                                      Image.LANCZOS)

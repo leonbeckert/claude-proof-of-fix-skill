@@ -311,6 +311,83 @@ check "failure screenshot captured" test -s "$TMP/.proof-of-fix/stepfail/before/
 check "error result points at the screenshot" grep -q "before/screenshot.png" "$RSF"
 check "no orphan webm left in the phase dir" bash -c "! ls $TMP/.proof-of-fix/stepfail/before/*.webm >/dev/null 2>&1"
 
+say "REG11 the mark is per region, not the union of every changed pixel"
+cat > "$TMP/measure_test.py" <<'PY'
+import os, sys
+sys.path.insert(0, os.environ["POF_BIN"])
+from PIL import Image, ImageDraw
+import variants as V
+
+
+def pair(paint_b, paint_a, size=(800, 600)):
+    b = Image.new("RGB", size, "white"); paint_b(ImageDraw.Draw(b))
+    a = Image.new("RGB", size, "white"); paint_a(ImageDraw.Draw(a))
+    return b, a
+
+
+def marks(b, a):
+    w, h = b.size
+    keep, dropped = V.select_clusters(V.diff_clusters(V.diff_mask(b, a)))
+    grown = [V.pad_box(V.whole_lines(V.pad_box(x, w, h), a, w, h), w, h, 4, 4, 3, 3)
+             for _, x in keep]
+    return V.merge_boxes(grown), dropped
+
+
+case = sys.argv[1]
+if case == "distant":
+    # A real change top-left and an unrelated blip bottom-right — a ticking
+    # timestamp, a spinner. The union of both brackets everything in between.
+    b, a = pair(lambda d: (d.rectangle([100, 100, 300, 140], fill="black"),
+                           d.rectangle([700, 500, 712, 510], fill="black")),
+                lambda d: d.rectangle([100, 100, 300, 140], fill="gray"))
+    boxes, dropped = marks(b, a)
+    assert len(boxes) == 1, boxes
+    assert len(dropped) == 1, dropped
+    assert boxes[0][3] < 200, boxes  # must not stretch down to the blip at y=500
+elif case == "region":
+    # Three reworked rows of one card are one change, not three findings.
+    rows = [(100, 100, 300, 140), (100, 170, 300, 210), (100, 240, 300, 280)]
+    b, a = pair(lambda d: [d.rectangle(r, fill="black") for r in rows],
+                lambda d: [d.rectangle(r, fill="gray") for r in rows])
+    boxes, _ = marks(b, a)
+    assert len(boxes) == 1, boxes
+elif case == "gap1":
+    quiet = [False] * 100
+    quiet[50] = True
+    for i in range(60, 80):
+        quiet[i] = True
+    assert V.edge_out(40, quiet, +1, 60, 1) == 50
+elif case == "gap10":
+    # A one-pixel quiet column is a glyph gap, not a component boundary: with a
+    # width requirement the expansion walks past it to the real gutter.
+    quiet = [False] * 100
+    quiet[50] = True
+    for i in range(60, 80):
+        quiet[i] = True
+    assert V.edge_out(40, quiet, +1, 60, 10) == 60
+PY
+export POF_BIN="$BIN"
+for c in distant region gap1 gap10; do
+  check "measurement: $c" python3 "$TMP/measure_test.py" "$c"
+done
+
+say "REG12 a piped capture terminates and leaves nothing holding the caller's stdout"
+lsof -ti tcp:$PORT | xargs -r kill 2>/dev/null; sleep 1
+cp "$DEMO/static-before.html" "$WWW/index.html"
+req '{"issue":"pipetest","phase":"before","route":"/","steps":[],"expect":"Red banner","assert":{"type":"text","text":"Layout broken"},"expect_after":"x"}' >/dev/null
+# Every other check redirects to a file, which is exactly why the hang hid here:
+# only a pipe reader waits for the write end to close.
+( cd "$TMP" && bash "$BIN/phase.sh" capture "$TMP/req.json" 2>&1 | cat >"$TMP/pipe.out" ) &
+PIPEPID=$!
+WAITED=0
+while kill -0 "$PIPEPID" 2>/dev/null && [[ $WAITED -lt 90 ]]; do sleep 1; WAITED=$((WAITED + 1)); done
+check "piped capture returned instead of blocking on an inherited pipe" \
+  bash -c "! kill -0 $PIPEPID 2>/dev/null"
+kill -9 "$PIPEPID" 2>/dev/null
+check "piped run reported success" grep -q "SUCCESS before" "$TMP/pipe.out"
+# The bracket keeps pgrep from matching this very command line.
+check "no server supervisor survived the run" bash -c "! pgrep -f 'ensure_server[.]sh' >/dev/null"
+
 say ""
 say "selftest: $PASS passed, $FAILED failed"
 [[ $FAILED -eq 0 ]]

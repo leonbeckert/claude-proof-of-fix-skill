@@ -55,8 +55,18 @@ for k, v in c.get("server_env", {}).items():
     sys.stdout.write(f"{k}={v}\0")
 PY
 )
+# The dev server must not inherit this script's stdio. Backgrounding inside a
+# subshell leaves that subshell alive holding fd 1/2 of the caller: harmless when
+# output goes to a file (it just orphans), fatal when the caller reads phase.sh
+# through a pipe — the write end never closes, so the reader hangs long after
+# result.json is on disk. Redirect all three descriptors on the subshell itself
+# and exec into the server, so nothing survives holding them.
 # ${arr[@]+…} guards the empty-array-under-nounset case in macOS bash 3.2
-(cd "$APP" && nohup env ${ENVARGS[@]+"${ENVARGS[@]}"} bash -c "$DEV" >"$LOG" 2>&1 & echo $! >"$ROOT/.proof-of-fix/server.pid")
+(cd "$APP" && exec nohup env ${ENVARGS[@]+"${ENVARGS[@]}"} bash -c "$DEV") \
+  </dev/null >"$LOG" 2>&1 &
+SRV=$!
+echo "$SRV" >"$ROOT/.proof-of-fix/server.pid"
+disown "$SRV" 2>/dev/null || true
 
 for _ in $(seq 1 90); do
   healthy && exit 0

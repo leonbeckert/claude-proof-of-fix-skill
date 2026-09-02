@@ -142,7 +142,7 @@ bash /path/to/your/project/.claude/skills/proof-of-fix/bin/selftest.sh
 Success is the final line:
 
 ```
-selftest: 77 passed, 0 failed
+selftest: 84 passed, 0 failed
 ```
 
 The selftest runs the real pipeline in a throwaway directory against four bundled static
@@ -260,15 +260,37 @@ in `phase.sh` converts any non-zero exit into a `CRASH` result before the proces
 so a caller polling one file never has to fall back on a timeout. `T12` kills `record.mjs`
 mid-run through the `POF_TEST_CRASH` hook and asserts the result file exists.
 
+### The dev server never holds the caller's stdio
+
+The capture starts the app in the background, and that background process must not inherit
+this script's stdout. A backgrounded subshell keeps those descriptors alive: harmless when
+output goes to a file, fatal when the caller reads `phase.sh` through a pipe, which is what
+`claude -p` does. The write end never closes, so the caller blocks long after `result.json`
+is on disk, and the run looks like a hang rather than a success. `ensure_server.sh`
+redirects all three descriptors on the subshell itself and `exec`s into the server, so
+nothing survives holding them. `REG12` runs a capture through a pipe — every other check
+redirects to a file, which is exactly why this hid — and asserts both that it returns and
+that no supervisor process is left behind.
+
 ### The highlight is measured, not drawn
 
 `variants.py` thresholds the difference of the two screenshots at 24/255 to discard
-antialiasing noise and takes the bounding box, then grows it outward to the first visually
-uniform row and column on each side. The growth step matters because a raw diff box starts
-where the pixels first differ, which on reworded copy is mid-word — the shared prefix is
-identical. Expansion stops at the first quiet gap, so the box cannot wander onto an
-unchanged element. When the changed area exceeds 45% of the page, the zoom crops are
-skipped and the reason is printed: a mark covering most of the page locates nothing.
+antialiasing noise, then splits the result into connected components rather than taking
+one bounding box over all of it. A single box would be the union of every changed pixel,
+so an edited label and a relative timestamp that ticked over during the capture produce
+one tall rectangle bracketing every untouched element between them — and a reviewer reads
+that as "these changed too". Components far apart get their own mark; components below
+18% of the heaviest one are left unmarked and named on stderr, never dropped silently.
+
+Each component is then grown outward to the first visually uniform row and column, because
+a raw diff box starts where the pixels first differ, which on reworded copy is mid-word.
+A quiet band only counts as a boundary once it is wide enough to be one — 4 px vertically,
+10 px horizontally. Without that width test the expansion stops in the gap between a label
+and its icon and cuts the control in half. Boxes that end up within 64 px of each other on
+both axes are fused: seven reworked rows of one panel are one change, not seven findings.
+
+When the changed area still exceeds 45% of the page, the zoom crops are skipped and the
+reason is printed: a mark covering most of the page locates nothing.
 
 ### Stacked, never side by side
 
@@ -309,9 +331,9 @@ validated, so a rejected request never moves the proof you are currently looking
 
 ## Limits
 
-The selftest is the evidence base: 77 checks over both capture modes, the annotated
-stills, the verdict guards, the spec guard, role validation and the refuse path, plus ten
-regression checks — four of them labelled with the machinery finding they pin. It needs no
+The selftest is the evidence base: 84 checks over both capture modes, the annotated
+stills, the verdict guards, the spec guard, role validation and the refuse path, plus
+twelve regression checks — each labelled with the finding it pins. It needs no
 application, so it runs against a fresh clone. Hash binding is checked by recomputing the
 sha256 of the first artifact and by asserting that the stills appear in `artifacts`, not
 by recomputing all of them.
@@ -333,6 +355,12 @@ Known boundaries:
   stills. The stacked deliverable is still produced and `result.json` lists no variants.
 - `FORBIDDEN_ACTION` and `NOT_VISUALLY_DEMONSTRABLE` are enforced by the skill prompt and
   the `refuse` subcommand, not by `validate.py` or `finalize.py` like the other codes.
+- The diff is positional. Inserting an element shifts everything below it, and every
+  shifted row reads as changed, so a change that moves the page produces marks that are
+  correct but not specific. Aligning rows between the two screenshots before diffing would
+  fix it; that is not implemented.
+- There is no way to exclude a known-noisy region up front. Live clocks and spinners land
+  in the diff and are handled after the fact, by being too light to mark.
 
 ## Repository layout
 
@@ -346,7 +374,7 @@ skills/proof-of-fix/          the capture skill
   bin/compose.sh              ffmpeg and ImageMagick composition
   bin/finalize.py             dimension gates, atomic result.json
   bin/variants.py             annotated stills generator
-  bin/selftest.sh             77 checks, no application required
+  bin/selftest.sh             84 checks, no application required
   demo/                       four static pages the selftest runs against
 skills/proof-of-fix-setup/    once-per-project onboarding
 docs/contract.md              request and result schema, error codes
