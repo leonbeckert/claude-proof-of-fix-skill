@@ -129,7 +129,10 @@ writes. Re-running against an existing install stops instead of overwriting; `--
 replaces.
 
 The allow-rules matter: without them a headless run is denied silently, and whoever
-started it sees a hang rather than a permission error.
+started it sees a hang rather than a permission error. Write access is scoped to
+`.proof-of-fix/**/request-*.json`, the one file the agent authors. Everything else in that
+directory is produced by the pipeline through the Bash rule, so a confused run cannot edit
+a verdict or a deliverable into existence.
 
 ### Verify the machinery
 

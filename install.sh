@@ -89,7 +89,13 @@ rules = [
     # Edit(...) covers every file-editing tool including Write. A separate
     # Write(...) rule is not matched by file permission checks at all, and
     # Claude Code warns about it on every invocation.
-    "Edit(.proof-of-fix/**)",
+    #
+    # Scoped to the request file on purpose: it is the only thing the agent
+    # writes. result.json, capture-spec.json and everything under deliverable/
+    # are produced by the pipeline through the Bash rule above, and SKILL.md
+    # forbids editing them by hand — so the agent never needs write access to
+    # them, and granting it would let a confused run forge its own proof.
+    "Edit(.proof-of-fix/**/request-*.json)",
 ]
 data = {}
 if os.path.isfile(path):
