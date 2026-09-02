@@ -658,6 +658,13 @@ def build(issue_dir):
 
     out_dir = os.path.join(issue_dir, "deliverable", "variants")
     os.makedirs(out_dir, exist_ok=True)
+    # Clear this generator's own outputs first. A variant can legitimately be
+    # skipped now, so without this a rebuild leaves the previous run's file in
+    # place and it reads as current — the one stale artifact in a set whose whole
+    # claim is that it was measured from these two screenshots.
+    for stale in os.listdir(out_dir):
+        if stale[:2].isdigit() and stale[2:3] == "-":
+            os.remove(os.path.join(out_dir, stale))
     written = []
 
     def save(name, img):

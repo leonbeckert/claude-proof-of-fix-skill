@@ -428,8 +428,12 @@ elif case == "wide_no_zoom":
     for side, img in (("before", b), ("after", a)):
         _os.makedirs(_os.path.join(dd, side))
         img.save(_os.path.join(dd, side, "screenshot.png"))
-    assert V.build(dd) == 0
     vd = _os.path.join(dd, "deliverable", "variants")
+    _os.makedirs(vd)
+    # A leftover from an earlier run must not survive a rebuild that no longer
+    # produces it, or the set carries one still nothing measured.
+    open(_os.path.join(vd, "05-context-with-zoom.png"), "wb").write(b"stale")
+    assert V.build(dd) == 0
     made = sorted(_os.listdir(vd))
     assert "02-context.png" in made, made
     assert "05-context-with-zoom.png" not in made, made
