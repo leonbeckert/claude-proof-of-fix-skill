@@ -193,10 +193,15 @@ def verdict_main(issue, phase, args):
         before_check = json.load(open(os.path.join(issue_dir, "before-resolved.json")))
         before_meta = json.load(open(os.path.join(issue_dir, "before", "meta.json")))
         b_method = "machine" if before_meta.get("assert", {}).get("defined") else "visual"
+        # A suggestion, not a decision: which still carries the change depends on how
+        # big the change turned out, and only something that has looked at the images
+        # can tell. SKILL.md makes that review a mandatory step of the after phase.
         picks = [v for v in variants if os.path.basename(v).startswith(("02-", "03-"))]
         attach_line = (
-            "*Attach: " + ", ".join(f"`{os.path.basename(v)}`" for v in picks)
+            "*Suggested attachments: " + ", ".join(f"`{os.path.basename(v)}`" for v in picks)
             + f" from `deliverable/variants/` — the marked region is the measured pixel diff. "
+              f"Check them against the change before posting; on a wide change "
+              f"`01-full-view.png` alone is usually the better evidence. "
               f"`{os.path.basename(deliverable)}` is the full motion record if anyone wants it.*"
             if picks else
             f"*(attach `{os.path.basename(deliverable)}` — top: before, bottom: after)*")

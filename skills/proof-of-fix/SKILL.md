@@ -37,7 +37,8 @@ Headless (`-p`): **never**. Every branch terminates in a result.json — that's 
    or `--verdict not-visible --note "<what is missing / what shows instead>"`.
    Judge only what the pixels show. "The fix is probably fine" is not a verdict — if the screenshot doesn't show it, it's `not-visible`.
 5. **Refusals/errors outside the script path:** `bash .claude/skills/proof-of-fix/bin/phase.sh refuse <issue> <phase> <CODE> "<detail>"` (use issue `_invalid` if none parseable).
-6. **Report** (final message): status + code from result.json, the deliverable path (after phase), and one sentence on the symptom check. Nothing else — the caller parses files, not your prose.
+6. **Choose the attachment** (after phase, mandatory — never skip): Read the stills in `deliverable/variants/` and pick the one or two that actually show this change. Do not take the defaults on trust; the generator sizes every variant off one measured box, and which of them lands depends on how big the change turned out to be. See *Choosing what to attach* below.
+7. **Report** (final message): status + code from result.json, the deliverable path (after phase), the files you picked and one clause on why, and one sentence on the symptom check. Nothing else — the caller parses files, not your prose.
 
 ## Annotated stills (after phase, automatic)
 
@@ -47,18 +48,46 @@ Nothing to invoke by hand; `phase.sh variants <issue>` only rebuilds them from
 captures already on disk (e.g. after a generator tweak) and does not touch
 result.json.
 
-| File | What it is | Use it when |
-|---|---|---|
-| `01-full-view.png` | Whole page, before over after, empty tail trimmed | Always ships. The only one still showing toasts, tabs, surrounding state |
-| `02-context.png` | The change plus neighbouring rows for comparison | **Default attachment** |
-| `03-line-zoom.png` | The changed line alone, magnified | **Default attachment** — pairs with 02: context plus legibility |
-| `04-blink.gif` | The two crops alternating in place | The delta is small and a reviewer keeps missing it; motion finds what comparison can't |
-| `05-context-with-zoom.png` | 02 plus a 3× readout of the changed line | The marked text is too small to read at page scale but the surroundings still matter |
+| File | What it is |
+|---|---|
+| `01-full-view.png` | Whole page, before over after, empty tail trimmed. The only one still showing toasts, tabs, surrounding state |
+| `02-context.png` | The change plus neighbouring rows for comparison |
+| `03-line-zoom.png` | The changed region alone, magnified up to 4× — but only as far as its width allows |
+| `04-blink.gif` | The two crops alternating in place; motion finds what comparison can't |
+| `05-context-with-zoom.png` | 02 plus a magnified readout. Not written at all when the region is too wide to magnify |
 
-Attach **02 and 03 as separate images**, not one composite — the reviewer gets
-context and legibility without either compromising the other. `proof-comment.md`
-already names them. The mp4 stays as the motion record; do not lead with it, a
-one-line delta is close to invisible in a video.
+## Choosing what to attach (after phase, mandatory)
+
+**Read the candidates before you name them.** Every variant is derived from the
+same measured box, so the useful one shifts with the size of the change, and a
+variant can be produced and still show nothing. A one-line delta and a five-card
+redesign do not want the same image.
+
+Judge each candidate you open on three things:
+
+- **Does the mark point at the change?** If the box brackets something the fix did
+  not touch, say so in the report rather than attaching it.
+- **Is the zoom actually magnifying?** `03` falls back to 1× on a wide region, and
+  `05` is skipped entirely below 1.5×. A crop that is not enlarged adds nothing
+  next to `02`; do not attach it just because the filename says zoom.
+- **Is there enough left to orient by?** On a small delta `02` is a tight crop and
+  needs no help. On a change spanning most of the page `02` approaches the full
+  view, and then `01` is the honest choice — one image instead of two near-copies.
+
+Rules of thumb, not a lookup table — the images decide:
+
+| How big the change turned out | Usually the right pick |
+|---|---|
+| A line, a label, one control | `02` and `03` as two separate images: context and legibility, neither compromising the other |
+| One component or card | `02` alone, or `02` + `05` when the text is small |
+| Several components, most of the view | `01` alone — the crops are no longer crops |
+| Reviewer keeps missing it | add `04` |
+
+Attach the picks as **separate images**, never one composite. `proof-comment.md`
+suggests a pair; if your review lands elsewhere, name your choice in the report —
+the comment body is a draft for a human, not a verdict. The mp4 stays as the
+motion record; do not lead with it, a one-line delta is close to invisible in a
+video.
 
 Stacked (before over after), never left/right: two 1920-wide pages side by side
 force a downscale that destroys the very text being proven.
@@ -102,4 +131,10 @@ Prompt: `/proof-of-fix {"issue":"17","phase":"before","route":"/dashboard","step
 ## Bad example
 
 Prompt asks for phase before; the machine assert fails (`Save failed` not found). Agent looks at the screenshot, thinks the layout "looks broken anyway", and runs finalize with `--verdict confirmed` to be helpful.
+**Also wrong, and easier to slip into:** finishing the after phase by naming
+`02` and `03` because the table used to call them the default, without opening
+them. On a change covering a third of the page `03` comes out at 1× and `02` is
+nearly the full view, so the reviewer gets two images that say the same thing and
+no answer to "what actually changed". Read the stills, then pick.
+
 **Wrong twice:** the verdict contradicts the machine assert (finalize rejects it as `VERDICT_CONFLICT` — the assert is the caller's own definition of the symptom), and "looks broken anyway" certifies a *different* symptom than the issue describes, producing proof of nothing. Correct behavior: let the `SYMPTOM_NOT_VISIBLE` error result stand so the caller learns the repro is wrong.

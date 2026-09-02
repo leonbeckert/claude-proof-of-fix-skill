@@ -73,12 +73,17 @@ Everything lands under `.proof-of-fix/<issue>/deliverable/`.
 | `before-after.mp4` | Which interaction did the agent really perform? |
 | `variants/04-blink.gif` | Did anything move that nobody asked to move? |
 | `variants/01-full-view.png` | The whole captured viewport, in case the surrounding state matters. |
-| `variants/05-context-with-zoom.png` | Context and a 3x readout of the changed line in one image. |
+| `variants/05-context-with-zoom.png` | Context and a magnified readout in one image. Not written when the change is too wide to magnify. |
 | `result.json` | Did the machine checks pass, and are these the files it produced? |
 | `proof-comment.md` | A ready comment body, if you want to hand the evidence on. |
 
 `result.json` carries a sha256 for every file in the set, so a still edited after the fact
 no longer matches the run it claims to come from.
+
+Which of these is the useful one depends on how big the change turned out, so the skill
+makes Claude open the stills and pick before it reports. A one-line delta wants the tight
+crop and its zoom; a change spanning most of the view wants the full page, because by then
+the crops are no longer crops.
 
 If you are attaching evidence to a ticket, `02` and `03` belong together: `02` carries the
 surrounding rows, `03` makes the changed text legible at issue-tracker scale. The video is
@@ -145,7 +150,7 @@ bash /path/to/your/project/.claude/skills/proof-of-fix/bin/selftest.sh
 Success is the final line:
 
 ```
-selftest: 87 passed, 0 failed
+selftest: 89 passed, 0 failed
 ```
 
 The selftest runs the real pipeline in a throwaway directory against four bundled static
@@ -346,9 +351,11 @@ validated, so a rejected request never moves the proof you are currently looking
 
 ## Limits
 
-The selftest is the evidence base: 87 checks over both capture modes, the annotated
+The selftest is the evidence base: 89 checks over both capture modes, the annotated
 stills, the verdict guards, the spec guard, role validation and the refuse path, plus
-twelve regression checks — each labelled with the finding it pins. It needs no
+twelve regression checks — each labelled with the finding it pins. Nine of them are
+measurement cases: a synthetic before/after pair per failure mode, asserted on the boxes
+and the files that come out. It needs no
 application, so it runs against a fresh clone. Hash binding is checked by recomputing the
 sha256 of the first artifact and by asserting that the stills appear in `artifacts`, not
 by recomputing all of them.
@@ -390,7 +397,7 @@ skills/proof-of-fix/          the capture skill
   bin/compose.sh              ffmpeg and ImageMagick composition
   bin/finalize.py             dimension gates, atomic result.json
   bin/variants.py             annotated stills generator
-  bin/selftest.sh             87 checks, no application required
+  bin/selftest.sh             89 checks, no application required
   demo/                       four static pages the selftest runs against
 skills/proof-of-fix-setup/    once-per-project onboarding
 docs/contract.md              request and result schema, error codes

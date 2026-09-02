@@ -408,6 +408,49 @@ elif case == "moved_only":
         img.save(_os.path.join(d, side, "screenshot.png"))
     assert V.build(d) == 0, "pure move must still produce variants"
     assert _os.path.isfile(_os.path.join(d, "deliverable", "variants", "01-full-view.png"))
+elif case == "wide_no_zoom":
+    # A change spanning most of the width cannot be magnified: the readout strip is
+    # refitted to the context width, cancelling the enlargement. 05 must then not be
+    # written at all — a 1.2x "zoom" is the context view repeated at twice the size.
+    # Sized to land between the two gates: wide enough that the readout cannot
+    # magnify, small enough in area that 02 is still produced (six full-width rows
+    # would trip the 45% cut instead and prove nothing about this branch).
+    def bars(wide):
+        def paint(d):
+            for i in range(4):
+                d.rectangle([40, 40 + i * 50, 740 if wide else 120, 40 + i * 50 + 30],
+                            fill=(40, 40, 40))
+        return paint
+    b, a = pair(bars(False), bars(True))
+    import os as _os, shutil as _sh
+    dd = _os.path.join(_os.environ["POF_ROOT"], ".proof-of-fix", "widecase")
+    _sh.rmtree(dd, ignore_errors=True)
+    for side, img in (("before", b), ("after", a)):
+        _os.makedirs(_os.path.join(dd, side))
+        img.save(_os.path.join(dd, side, "screenshot.png"))
+    assert V.build(dd) == 0
+    vd = _os.path.join(dd, "deliverable", "variants")
+    made = sorted(_os.listdir(vd))
+    assert "02-context.png" in made, made
+    assert "05-context-with-zoom.png" not in made, made
+elif case == "narrow_keeps_zoom":
+    # The counterpart: a small change still gets its readout, so the skip above is
+    # a property of wide changes and not of the check itself.
+    def label(txt):
+        def paint(d):
+            d.rectangle([40, 40, 700, 300], fill=(245, 245, 245))
+            d.text((60, 160), txt, fill="black")
+        return paint
+    b, a = pair(label("Not available"), label("Free at 12:00"))
+    import os as _os, shutil as _sh
+    dd = _os.path.join(_os.environ["POF_ROOT"], ".proof-of-fix", "narrowcase")
+    _sh.rmtree(dd, ignore_errors=True)
+    for side, img in (("before", b), ("after", a)):
+        _os.makedirs(_os.path.join(dd, side))
+        img.save(_os.path.join(dd, side, "screenshot.png"))
+    assert V.build(dd) == 0
+    made = sorted(_os.listdir(_os.path.join(dd, "deliverable", "variants")))
+    assert "05-context-with-zoom.png" in made, made
 elif case == "gap10":
     # A one-pixel quiet column is a glyph gap, not a component boundary: with a
     # width requirement the expansion walks past it to the real gutter.
@@ -418,7 +461,7 @@ elif case == "gap10":
     assert V.edge_out(40, quiet, +1, 60, 10) == 60
 PY
 export POF_BIN="$BIN"
-for c in distant region gap1 gap10 insert edit_survives moved_only; do
+for c in distant region gap1 gap10 insert edit_survives moved_only wide_no_zoom narrow_keeps_zoom; do
   check "measurement: $c" python3 "$TMP/measure_test.py" "$c"
 done
 

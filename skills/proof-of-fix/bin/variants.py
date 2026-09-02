@@ -37,6 +37,7 @@ KEEP_RATIO = 0.18  # a cluster lighter than this share of the main one is noise
 ROW_GAP = 4       # px a quiet band must span to count as a line break
 COL_GAP = 10      # px a quiet band must span to count as a component boundary
 MERGE_PX = 64     # boxes nearer than this on both axes are one region, not two
+MIN_MAG = 1.5     # below this a 'zoom' variant is a duplicate of its own context view
 LBL_BEFORE, LBL_AFTER = "BEFORE", "AFTER"  # same wording compose.sh burns into the video
 BAND_H, BAND_FS = 62, 26
 
@@ -696,6 +697,11 @@ def build(issue_dir):
         tight = (edge_out(max(0, main[0] - 60), zcols, +1, 60, COL_GAP), main[1],
                  min(w, main[2] + 300), main[3])
         scale = max(1, min(4, round(1400 / max(1, tight[2] - tight[0]))))
+        if scale == 1:
+            # Wide changes leave nothing to magnify. The crop is still tighter than
+            # 02, so it ships — but the caller must not read the name as a promise.
+            print("variants: 03 is a crop at 1x, not a magnification — the changed "
+                  "region is %dpx wide" % (tight[2] - tight[0]), file=sys.stderr)
         b_z, a_z = (i.crop(tight).resize(((tight[2] - tight[0]) * scale,
                                           (tight[3] - tight[1]) * scale), Image.LANCZOS)
                     for i in (before, after))
@@ -720,10 +726,20 @@ def build(issue_dir):
         strip = frame(stack([callout(b_l, LBL_BEFORE, RED),
                              callout(a_l, LBL_AFTER, GREEN)], gap=20),
                       pad=18, bg=(255, 255, 255))
-        if strip.width > top.width:
-            strip = strip.resize((top.width, round(strip.height * top.width / strip.width)),
-                                 Image.LANCZOS)
-        save("05-context-with-zoom.png", frame(stack([top, strip], gap=20), pad=24))
+        # The strip is built at zs but then refitted to the context width, so a wide
+        # change cancels most of the magnification. This variant exists only for the
+        # readout: at 1.2x it is the context view repeated at twice the file size and
+        # twice the height, which costs a reviewer attention and returns nothing.
+        mag = zs * min(1.0, top.width / float(strip.width))
+        if mag < MIN_MAG:
+            print("variants: 05 skipped — the changed region is too wide to magnify "
+                  "(%.1fx after fitting to the context width); 02 already shows it"
+                  % mag, file=sys.stderr)
+        else:
+            if strip.width > top.width:
+                strip = strip.resize((top.width, round(strip.height * top.width / strip.width)),
+                                     Image.LANCZOS)
+            save("05-context-with-zoom.png", frame(stack([top, strip], gap=20), pad=24))
 
         # 04 — blink comparator. Two stills alternating in place beat any
         # side-by-side: the eye detects motion where it cannot detect difference.
