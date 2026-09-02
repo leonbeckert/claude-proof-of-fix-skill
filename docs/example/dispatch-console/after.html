@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dispatch Console — Fleet</title>
+<link rel="icon" href="data:,">
+<style>
+  :root{
+    --accent:#2563eb;
+    --accent-dark:#1d4ed8;
+    --accent-tint:#eef4ff;
+    --ink:#101828;
+    --ink-2:#344054;
+    --ink-3:#667085;
+    --ink-4:#98a2b3;
+    --line:#e4e7ec;
+    --line-soft:#eaecf0;
+    --surface:#ffffff;
+    --canvas:#f5f6f8;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--canvas);
+    color:var(--ink-2);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    font-size:14px;
+    line-height:1.45;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ---------- header ---------- */
+  .topbar{
+    height:64px;
+    background:var(--surface);
+    border-bottom:1px solid var(--line);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:0 32px;
+  }
+  .brand{display:flex;align-items:center;gap:12px;}
+  .brand-mark{
+    width:32px;height:32px;border-radius:8px;
+    background:var(--accent);
+    display:flex;align-items:center;justify-content:center;
+    color:#fff;flex:none;
+  }
+  .brand-name{font-size:15px;font-weight:600;color:var(--ink);letter-spacing:-0.01em;}
+  .brand-sub{font-size:12px;color:var(--ink-3);margin-top:-2px;}
+  .topbar-right{display:flex;align-items:center;gap:24px;}
+  .shift{font-size:13px;color:var(--ink-3);}
+  .clock{
+    display:flex;align-items:center;gap:8px;
+    font-size:14px;font-weight:600;color:var(--ink);
+    font-variant-numeric:tabular-nums;
+  }
+  .clock svg{color:var(--ink-3);}
+
+  /* ---------- layout ---------- */
+  .workspace{
+    display:flex;
+    align-items:flex-start;
+    gap:24px;
+    padding:24px 32px;
+  }
+  .list-col{flex:1 1 auto;min-width:0;}
+  .panel-col{flex:0 0 400px;width:400px;}
+
+  /* ---------- vehicle list ---------- */
+  .card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:10px;
+  }
+  .list-head{
+    display:flex;align-items:baseline;justify-content:space-between;
+    padding:16px 20px;
+    border-bottom:1px solid var(--line-soft);
+  }
+  .list-title{font-size:15px;font-weight:600;color:var(--ink);}
+  .list-meta{font-size:12px;color:var(--ink-3);}
+  .rows{list-style:none;margin:0;padding:0;}
+  .row{
+    display:flex;align-items:center;gap:12px;
+    padding:12px 20px;
+    border-bottom:1px solid var(--line-soft);
+    cursor:pointer;
+    border-left:3px solid transparent;
+    background:var(--surface);
+  }
+  .row:last-child{border-bottom:0;}
+  .row:hover{background:#fafbfc;}
+  .row.is-selected{background:var(--accent-tint);border-left-color:var(--accent);}
+  .row-dot{flex:none;color:var(--ink-4);display:flex;}
+  .row.is-selected .row-dot{color:var(--accent);}
+  .row-main{flex:1 1 auto;min-width:0;}
+  .row-name{font-size:14px;font-weight:600;color:var(--ink);letter-spacing:-0.005em;}
+  .row-type{font-size:12px;color:var(--ink-3);margin-top:1px;}
+  .row-status{
+    font-size:12px;color:var(--ink-3);
+    text-align:right;flex:none;
+    font-variant-numeric:tabular-nums;
+  }
+  .row-status b{display:block;font-weight:600;color:var(--ink-2);font-size:13px;}
+
+  /* ================================================================
+     DETAIL PANEL — the only region that differs between
+     before.html and after.html
+     ================================================================ */
+  .panel{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:24px;
+    box-shadow:0 1px 2px rgba(16,24,40,.04);
+  }
+
+  .p-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}
+  .p-name{
+    font-size:20px;line-height:1.2;font-weight:600;
+    color:var(--ink);letter-spacing:-0.02em;margin:0;
+  }
+  .p-type{
+    display:flex;align-items:center;gap:8px;
+    font-size:13px;color:var(--ink-3);margin-top:4px;
+  }
+  .p-type svg{flex:none;color:var(--ink-4);}
+  .p-pill{
+    flex:none;
+    display:inline-flex;align-items:center;gap:6px;
+    height:24px;padding:0 10px;border-radius:12px;
+    background:#f2f4f7;border:1px solid var(--line);
+    font-size:12px;font-weight:600;color:var(--ink-2);
+    white-space:nowrap;
+  }
+  .p-pill svg{color:var(--ink-3);}
+
+  .p-rule{height:1px;background:var(--line-soft);margin:20px 0;}
+
+  .p-hero{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;}
+  .p-label{
+    font-size:11px;font-weight:600;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--ink-3);
+  }
+  .p-hero-value{
+    font-size:32px;line-height:1;font-weight:600;
+    color:var(--ink);letter-spacing:-0.025em;
+    font-variant-numeric:tabular-nums;
+  }
+  .p-countdown{
+    display:inline-flex;align-items:center;height:24px;
+    padding:0 10px;border-radius:12px;
+    background:var(--accent-tint);
+    font-size:13px;font-weight:600;color:var(--accent-dark);
+    font-variant-numeric:tabular-nums;
+  }
+
+  /* Run timeline: shows position in time as a shape, so the dispatcher does not
+     have to subtract two timestamps to see how far along the run is. */
+  .p-tl{margin-top:18px;}
+  .p-tl-cap{position:relative;height:16px;}
+  .p-tl-cap span{
+    position:absolute;transform:translateX(-50%);white-space:nowrap;
+    font-size:11px;font-weight:600;letter-spacing:.02em;
+    color:var(--accent-dark);font-variant-numeric:tabular-nums;
+  }
+  .p-tl-rail{position:relative;height:6px;border-radius:3px;background:#e6e9ee;}
+  .p-tl-fill{position:absolute;top:0;left:0;bottom:0;border-radius:3px;background:var(--accent);}
+  .p-tl-now{
+    position:absolute;top:50%;width:10px;height:10px;border-radius:50%;
+    background:var(--accent);transform:translate(-50%,-50%);box-shadow:0 0 0 3px #fff;
+  }
+  .p-tl-axis{
+    display:flex;justify-content:space-between;margin-top:8px;
+    font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums;
+  }
+
+  .p-facts{display:flex;flex-direction:column;gap:16px;margin-top:20px;}
+  .p-fact{display:flex;align-items:flex-start;gap:12px;}
+  .p-fact-icon{flex:none;width:20px;height:20px;display:flex;align-items:center;justify-content:center;color:var(--ink-4);margin-top:1px;}
+  .p-fact-body{min-width:0;}
+  .p-fact-value{font-size:14px;color:var(--ink);margin-top:2px;}
+  .p-fact-value .muted{color:var(--ink-3);}
+
+  .p-alt{
+    margin-top:20px;padding:12px 16px;
+    background:#f8f9fb;border:1px solid var(--line-soft);
+    border-radius:8px;
+  }
+  .p-alt-value{font-size:13px;color:var(--ink-2);margin-top:2px;}
+  .p-alt-value strong{color:var(--ink);font-weight:600;}
+
+  .p-actions{display:flex;gap:8px;margin-top:20px;}
+  .p-btn{
+    flex:1 1 0;height:36px;border-radius:8px;
+    font-family:inherit;font-size:13px;font-weight:600;
+    cursor:pointer;border:1px solid transparent;
+  }
+  .p-btn-primary{background:var(--accent);color:#fff;}
+  .p-btn-primary:hover{background:var(--accent-dark);}
+  .p-btn-ghost{background:var(--surface);border-color:var(--line);color:var(--ink-2);}
+  .p-btn-ghost:hover{background:#f8f9fb;}
+</style>
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 17V9a1 1 0 0 1 1-1h9v9"></path>
+          <path d="M13 11h3.5a1 1 0 0 1 .8.4L20 15v2"></path>
+          <circle cx="7.5" cy="17.5" r="1.8"></circle>
+          <circle cx="16.5" cy="17.5" r="1.8"></circle>
+        </svg>
+      </span>
+      <span>
+        <div class="brand-name">Dispatch Console</div>
+        <div class="brand-sub">Central Region</div>
+      </span>
+    </div>
+    <div class="topbar-right">
+      <span class="shift">Shift B &middot; Duty officer M. Rahal</span>
+      <span class="clock">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M12 7v5l3 2"></path>
+        </svg>
+        11:25
+      </span>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <div class="list-col">
+      <section class="card">
+        <div class="list-head">
+          <h1 class="list-title">Fleet</h1>
+          <span class="list-meta">8 vehicles &middot; 3 available</span>
+        </div>
+        <ul class="rows" id="fleet">
+          <li class="row" data-id="veh04">
+            <span class="row-dot"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4.5"></circle></svg></span>
+            <span class="row-main"><span class="row-name">Vehicle 04</span><div class="row-type">Ambulance &middot; BLS</div></span>
+            <span class="row-status"><b>Available</b>Station 3</span>
+          </li>
+          <li class="row" data-id="veh07">
+            <span class="row-dot"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4.5" fill="currentColor"></circle></svg></span>
+            <span class="row-main"><span class="row-name">Vehicle 07</span><div class="row-type">Ambulance &middot; ALS</div></span>
+            <span class="row-status"><b>On scene</b>Elm St &amp; 4th</span>
+          </li>
+          <li class="row is-selected" data-id="veh10">
+            <span class="row-dot"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4.5" fill="currentColor"></circle></svg></span>
+            <span class="row-main"><span class="row-name">Vehicle 10</span><div class="row-type">Ambulance &middot; ALS</div></span>
+            <span class="row-status"><b>En route</b>Mercy General</span>
+          </li>
+          <li class="row" data-id="veh12">
+            <span class="row-dot"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4.5"></circle></svg></span>
+            <span class="row-main"><span class="row-name">Vehicle 12</span><div class="row-type">Ambulance &middot; BLS</div></span>
+            <span class="row-status"><b>Available</b>Station 1</span>
+          </li>
+          <li class="row" data-id="veh15">
+            <span class="row-dot"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4.5"></circle><path d="M5 11 11 5"></path></svg></span>
+            <span class="row-main"><span class="row-name">Vehicle 15</span><div class="row-type">Rapid response</div></span>
+            <span class="row-status"><b>Out of service</b>Maintenance</span>
+          </li>
+          <li class="row" data-id="veh18">
+            <span class="row-dot"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4.5" fill="currentColor"></circle></svg></span>
+            <span class="row-main"><span class="row-name">Vehicle 18</span><div class="row-type">Ambulance &middot; ALS</div></span>
+            <span class="row-status"><b>En route</b>St. Anne's</span>
+          </li>
+          <li class="row" data-id="veh21">
+            <span class="row-dot"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4.5"></circle></svg></span>
+            <span class="row-main"><span class="row-name">Vehicle 21</span><div class="row-type">Ambulance &middot; BLS</div></span>
+            <span class="row-status"><b>Available</b>Station 3</span>
+          </li>
+          <li class="row" data-id="veh23">
+            <span class="row-dot"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4.5" fill="currentColor"></circle></svg></span>
+            <span class="row-main"><span class="row-name">Vehicle 23</span><div class="row-type">Ambulance &middot; ALS</div></span>
+            <span class="row-status"><b>At hospital</b>Mercy General</span>
+          </li>
+        </ul>
+      </section>
+    </div>
+
+    <div class="panel-col">
+      <!-- BEGIN DETAIL PANEL -->
+      <section class="panel" id="panel">
+        <div class="p-head">
+          <div>
+            <h2 class="p-name">Vehicle 10</h2>
+            <div class="p-type">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 17V9a1 1 0 0 1 1-1h9v9"></path>
+                <path d="M13 11h3.5a1 1 0 0 1 .8.4L20 15v2"></path>
+                <circle cx="7.5" cy="17.5" r="1.8"></circle>
+                <circle cx="16.5" cy="17.5" r="1.8"></circle>
+              </svg>
+              Ambulance &middot; ALS
+            </div>
+          </div>
+          <span class="p-pill">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 12h13"></path><path d="m13 7 5 5-5 5"></path>
+            </svg>
+            En route
+          </span>
+        </div>
+
+        <div class="p-rule"></div>
+
+        <div class="p-label">Available from</div>
+        <div class="p-hero" style="margin-top:6px;">
+          <span class="p-hero-value">12:00</span>
+          <span class="p-countdown">in 35 min</span>
+        </div>
+
+        <div class="p-tl">
+          <div class="p-tl-cap"><span style="left:70.8%;">Now 11:25</span></div>
+          <div class="p-tl-rail">
+            <div class="p-tl-fill" style="width:70.8%;"></div>
+            <div class="p-tl-now" style="left:70.8%;"></div>
+          </div>
+          <div class="p-tl-axis"><span>Dispatched 10:00</span><span>Available 12:00</span></div>
+        </div>
+
+        <div class="p-facts">
+          <div class="p-fact">
+            <span class="p-fact-icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 10c0 5.2-7 11-7 11s-7-5.8-7-11a7 7 0 1 1 14 0Z"></path>
+                <circle cx="12" cy="10" r="2.5"></circle>
+              </svg>
+            </span>
+            <span class="p-fact-body">
+              <span class="p-label">Destination</span>
+              <div class="p-fact-value">Mercy General Hospital <span class="muted">&middot; 6.4 km</span></div>
+            </span>
+          </div>
+
+          <div class="p-fact">
+            <span class="p-fact-icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"></circle>
+                <path d="M12 7v5l3 2"></path>
+              </svg>
+            </span>
+            <span class="p-fact-body">
+              <span class="p-label">Dispatched</span>
+              <div class="p-fact-value">10:00 <span class="muted">&middot; 1 h 25 min ago</span></div>
+            </span>
+          </div>
+
+          <div class="p-fact">
+            <span class="p-fact-icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 19v-1.5a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3V19"></path>
+                <circle cx="10" cy="8" r="3"></circle>
+                <path d="M20 19v-1.5a3 3 0 0 0-2.2-2.9"></path>
+                <path d="M15.5 5.2a3 3 0 0 1 0 5.6"></path>
+              </svg>
+            </span>
+            <span class="p-fact-body">
+              <span class="p-label">Crew</span>
+              <div class="p-fact-value">Medic 2 &mdash; Ortiz, Hale <span class="muted">&middot; on until 14:00</span></div>
+            </span>
+          </div>
+        </div>
+
+        <div class="p-alt">
+          <span class="p-label">If you can't wait</span>
+          <div class="p-alt-value"><strong>Vehicle 12</strong> &middot; BLS &middot; available now, 8 min out</div>
+        </div>
+
+        <div class="p-actions">
+          <button type="button" class="p-btn p-btn-primary">Hold for next call</button>
+          <button type="button" class="p-btn p-btn-ghost">Assign another</button>
+        </div>
+      </section>
+      <!-- END DETAIL PANEL -->
+    </div>
+  </main>
+
+<script>
+(function () {
+  var ICON = {
+    truck: '<path d="M3 17V9a1 1 0 0 1 1-1h9v9"></path><path d="M13 11h3.5a1 1 0 0 1 .8.4L20 15v2"></path><circle cx="7.5" cy="17.5" r="1.8"></circle><circle cx="16.5" cy="17.5" r="1.8"></circle>',
+    pin: '<path d="M19 10c0 5.2-7 11-7 11s-7-5.8-7-11a7 7 0 1 1 14 0Z"></path><circle cx="12" cy="10" r="2.5"></circle>',
+    clock: '<circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path>',
+    crew: '<path d="M16 19v-1.5a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3V19"></path><circle cx="10" cy="8" r="3"></circle><path d="M20 19v-1.5a3 3 0 0 0-2.2-2.9"></path><path d="M15.5 5.2a3 3 0 0 1 0 5.6"></path>',
+    arrow: '<path d="M5 12h13"></path><path d="m13 7 5 5-5 5"></path>'
+  };
+
+  function svg(size, sw, body) {
+    return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" ' +
+      'stroke="currentColor" stroke-width="' + sw + '" stroke-linecap="round" ' +
+      'stroke-linejoin="round" aria-hidden="true">' + body + '</svg>';
+  }
+
+  var DATA = {
+    veh04: { name:"Vehicle 04", type:"Ambulance &middot; BLS", state:"Available", from:"Now",
+             countdown:"at Station 3", dest:"Station 3", destNote:"&middot; 2.1 km",
+             disp:"09:40", dispNote:"&middot; cleared 11:05",
+             crew:"Medic 5 &mdash; Novak, Reid", crewNote:"&middot; on until 16:00",
+             alt:"<strong>Vehicle 21</strong> &middot; BLS &middot; available now, 5 min out" },
+    veh07: { name:"Vehicle 07", type:"Ambulance &middot; ALS", state:"On scene", from:"12:20",
+             countdown:"in 55 min", dest:"Elm St &amp; 4th", destNote:"&middot; 3.8 km",
+             disp:"11:02", dispNote:"&middot; 23 min ago",
+             crew:"Medic 1 &mdash; Bauer, Ifeanyi", crewNote:"&middot; on until 15:00",
+             alt:"<strong>Vehicle 12</strong> &middot; BLS &middot; available now, 8 min out",
+             tl:{ from:"Dispatched 11:02", to:"Available 12:20", pct:29.5 } },
+    veh10: { name:"Vehicle 10", type:"Ambulance &middot; ALS", state:"En route", from:"12:00",
+             countdown:"in 35 min", dest:"Mercy General Hospital", destNote:"&middot; 6.4 km",
+             disp:"10:00", dispNote:"&middot; 1 h 25 min ago",
+             crew:"Medic 2 &mdash; Ortiz, Hale", crewNote:"&middot; on until 14:00",
+             alt:"<strong>Vehicle 12</strong> &middot; BLS &middot; available now, 8 min out",
+             tl:{ from:"Dispatched 10:00", to:"Available 12:00", pct:70.8 } },
+    veh12: { name:"Vehicle 12", type:"Ambulance &middot; BLS", state:"Available", from:"Now",
+             countdown:"at Station 1", dest:"Station 1", destNote:"&middot; 4.0 km",
+             disp:"08:15", dispNote:"&middot; cleared 10:50",
+             crew:"Medic 6 &mdash; Yildiz, Park", crewNote:"&middot; on until 18:00",
+             alt:"<strong>Vehicle 21</strong> &middot; BLS &middot; available now, 5 min out" },
+    veh15: { name:"Vehicle 15", type:"Rapid response", state:"Out of service", from:"16:30",
+             countdown:"in 5 h 5 min", dest:"Depot &mdash; bay 2", destNote:"&middot; 1.2 km",
+             disp:"07:30", dispNote:"&middot; brake service",
+             crew:"Unassigned", crewNote:"&middot; no crew booked",
+             alt:"<strong>Vehicle 21</strong> &middot; BLS &middot; available now, 5 min out" },
+    veh18: { name:"Vehicle 18", type:"Ambulance &middot; ALS", state:"En route", from:"12:45",
+             countdown:"in 1 h 20 min", dest:"St. Anne's Hospital", destNote:"&middot; 11.7 km",
+             disp:"11:10", dispNote:"&middot; 15 min ago",
+             crew:"Medic 4 &mdash; Sandoval, Kerr", crewNote:"&middot; on until 19:00",
+             alt:"<strong>Vehicle 12</strong> &middot; BLS &middot; available now, 8 min out",
+             tl:{ from:"Dispatched 11:10", to:"Available 12:45", pct:15.8 } },
+    veh21: { name:"Vehicle 21", type:"Ambulance &middot; BLS", state:"Available", from:"Now",
+             countdown:"at Station 3", dest:"Station 3", destNote:"&middot; 2.1 km",
+             disp:"09:05", dispNote:"&middot; cleared 10:20",
+             crew:"Medic 7 &mdash; Achebe, Lund", crewNote:"&middot; on until 17:00",
+             alt:"<strong>Vehicle 12</strong> &middot; BLS &middot; available now, 8 min out" },
+    veh23: { name:"Vehicle 23", type:"Ambulance &middot; ALS", state:"At hospital", from:"11:50",
+             countdown:"in 25 min", dest:"Mercy General Hospital", destNote:"&middot; 6.4 km",
+             disp:"10:35", dispNote:"&middot; 50 min ago",
+             crew:"Medic 3 &mdash; Vogel, Amari", crewNote:"&middot; on until 14:30",
+             alt:"<strong>Vehicle 12</strong> &middot; BLS &middot; available now, 8 min out",
+             tl:{ from:"Dispatched 10:35", to:"Available 11:50", pct:66.7 } }
+  };
+
+  var panel = document.getElementById("panel");
+  var rows = document.querySelectorAll("#fleet .row");
+
+  function fact(icon, label, value, note) {
+    return '<div class="p-fact">' +
+      '<span class="p-fact-icon" aria-hidden="true">' + svg(18, 1.5, icon) + '</span>' +
+      '<span class="p-fact-body"><span class="p-label">' + label + '</span>' +
+      '<div class="p-fact-value">' + value +
+      (note ? ' <span class="muted">' + note + '</span>' : '') + '</div></span></div>';
+  }
+
+  // Percentages come from the data, never from the clock: the fiction is pinned at
+  // 11:25 so every capture of this page renders identically.
+  function timeline(v) {
+    if (!v.tl) return '';
+    var pct = v.tl.pct + '%';
+    return '<div class="p-tl">' +
+      '<div class="p-tl-cap"><span style="left:' + pct + ';">Now 11:25</span></div>' +
+      '<div class="p-tl-rail">' +
+        '<div class="p-tl-fill" style="width:' + pct + ';"></div>' +
+        '<div class="p-tl-now" style="left:' + pct + ';"></div>' +
+      '</div>' +
+      '<div class="p-tl-axis"><span>' + v.tl.from + '</span><span>' + v.tl.to + '</span></div>' +
+    '</div>';
+  }
+
+  function render(id) {
+    var v = DATA[id];
+    if (!v) return;
+    panel.innerHTML =
+      '<div class="p-head"><div>' +
+        '<h2 class="p-name">' + v.name + '</h2>' +
+        '<div class="p-type">' + svg(16, 1.5, ICON.truck) + ' ' + v.type + '</div>' +
+      '</div>' +
+      '<span class="p-pill">' + svg(14, 2, ICON.arrow) + ' ' + v.state + '</span></div>' +
+      '<div class="p-rule"></div>' +
+      '<div class="p-label">Available from</div>' +
+      '<div class="p-hero" style="margin-top:6px;">' +
+        '<span class="p-hero-value">' + v.from + '</span>' +
+        '<span class="p-countdown">' + v.countdown + '</span>' +
+      '</div>' +
+      timeline(v) +
+      '<div class="p-facts">' +
+        fact(ICON.pin, "Destination", v.dest, v.destNote) +
+        fact(ICON.clock, "Dispatched", v.disp, v.dispNote) +
+        fact(ICON.crew, "Crew", v.crew, v.crewNote) +
+      '</div>' +
+      '<div class="p-alt"><span class="p-label">If you can\'t wait</span>' +
+        '<div class="p-alt-value">' + v.alt + '</div></div>' +
+      '<div class="p-actions">' +
+        '<button type="button" class="p-btn p-btn-primary">Hold for next call</button>' +
+        '<button type="button" class="p-btn p-btn-ghost">Assign another</button>' +
+      '</div>';
+  }
+
+  for (var i = 0; i < rows.length; i++) {
+    rows[i].addEventListener("click", function () {
+      for (var j = 0; j < rows.length; j++) rows[j].classList.remove("is-selected");
+      this.classList.add("is-selected");
+      render(this.getAttribute("data-id"));
+    });
+  }
+})();
+</script>
+</body>
+</html>

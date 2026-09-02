@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dispatch Console — Fleet</title>
+<link rel="icon" href="data:,">
+<style>
+  :root{
+    --accent:#2563eb;
+    --accent-dark:#1d4ed8;
+    --accent-tint:#eef4ff;
+    --ink:#101828;
+    --ink-2:#344054;
+    --ink-3:#667085;
+    --ink-4:#98a2b3;
+    --line:#e4e7ec;
+    --line-soft:#eaecf0;
+    --surface:#ffffff;
+    --canvas:#f5f6f8;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--canvas);
+    color:var(--ink-2);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    font-size:14px;
+    line-height:1.45;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ---------- header ---------- */
+  .topbar{
+    height:64px;
+    background:var(--surface);
+    border-bottom:1px solid var(--line);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:0 32px;
+  }
+  .brand{display:flex;align-items:center;gap:12px;}
+  .brand-mark{
+    width:32px;height:32px;border-radius:8px;
+    background:var(--accent);
+    display:flex;align-items:center;justify-content:center;
+    color:#fff;flex:none;
+  }
+  .brand-name{font-size:15px;font-weight:600;color:var(--ink);letter-spacing:-0.01em;}
+  .brand-sub{font-size:12px;color:var(--ink-3);margin-top:-2px;}
+  .topbar-right{display:flex;align-items:center;gap:24px;}
+  .shift{font-size:13px;color:var(--ink-3);}
+  .clock{
+    display:flex;align-items:center;gap:8px;
+    font-size:14px;font-weight:600;color:var(--ink);
+    font-variant-numeric:tabular-nums;
+  }
+  .clock svg{color:var(--ink-3);}
+
+  /* ---------- layout ---------- */
+  .workspace{
+    display:flex;
+    align-items:flex-start;
+    gap:24px;
+    padding:24px 32px;
+  }
+  .list-col{flex:1 1 auto;min-width:0;}
+  .panel-col{flex:0 0 400px;width:400px;}
+
+  /* ---------- vehicle list ---------- */
+  .card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:10px;
+  }
+  .list-head{
+    display:flex;align-items:baseline;justify-content:space-between;
+    padding:16px 20px;
+    border-bottom:1px solid var(--line-soft);
+  }
+  .list-title{font-size:15px;font-weight:600;color:var(--ink);}
+  .list-meta{font-size:12px;color:var(--ink-3);}
+  .rows{list-style:none;margin:0;padding:0;}
+  .row{
+    display:flex;align-items:center;gap:12px;
+    padding:12px 20px;
+    border-bottom:1px solid var(--line-soft);
+    cursor:pointer;
+    border-left:3px solid transparent;
+    background:var(--surface);
+  }
+  .row:last-child{border-bottom:0;}
+  .row:hover{background:#fafbfc;}
+  .row.is-selected{background:var(--accent-tint);border-left-color:var(--accent);}
+  .row-dot{flex:none;color:var(--ink-4);display:flex;}
+  .row.is-selected .row-dot{color:var(--accent);}
+  .row-main{flex:1 1 auto;min-width:0;}
+  .row-name{font-size:14px;font-weight:600;color:var(--ink);letter-spacing:-0.005em;}
+  .row-type{font-size:12px;color:var(--ink-3);margin-top:1px;}
+  .row-status{
+    font-size:12px;color:var(--ink-3);
+    text-align:right;flex:none;
+    font-variant-numeric:tabular-nums;
+  }
+  .row-status b{display:block;font-weight:600;color:var(--ink-2);font-size:13px;}
+
+  /* ================================================================
+     DETAIL PANEL — the only region that differs between
+     before.html and after.html
+     ================================================================ */
+  .panel{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:16px;
+  }
+  .p-title{font-size:16px;font-weight:700;color:var(--ink);}
+  .p-status{font-size:13px;color:var(--ink-2);margin-top:6px;}
+</style>
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 17V9a1 1 0 0 1 1-1h9v9"></path>
+          <path d="M13 11h3.5a1 1 0 0 1 .8.4L20 15v2"></path>
+          <circle cx="7.5" cy="17.5" r="1.8"></circle>
+          <circle cx="16.5" cy="17.5" r="1.8"></circle>
+        </svg>
+      </span>
+      <span>
+        <div class="brand-name">Dispatch Console</div>
+        <div class="brand-sub">Central Region</div>
+      </span>
+    </div>
+    <div class="topbar-right">
+      <span class="shift">Shift B &middot; Duty officer M. Rahal</span>
+      <span class="clock">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M12 7v5l3 2"></path>
+        </svg>
+        11:25
+      </span>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <div class="list-col">
+      <section class="card">
+        <div class="list-head">
+          <h1 class="list-title">Fleet</h1>
+          <span class="list-meta">8 vehicles &middot; 3 available</span>
+        </div>
+        <ul class="rows" id="fleet">
+          <li class="row" data-id="veh04">
+            <span class="row-dot"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4.5"></circle></svg></span>
+            <span class="row-main"><span class="row-name">Vehicle 04</span><div class="row-type">Ambulance &middot; BLS</div></span>
+            <span class="row-status"><b>Available</b>Station 3</span>
+          </li>
+          <li class="row" data-id="veh07">
+            <span class="row-dot"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4.5" fill="currentColor"></circle></svg></span>
+            <span class="row-main"><span class="row-name">Vehicle 07</span><div class="row-type">Ambulance &middot; ALS</div></span>
+            <span class="row-status"><b>On scene</b>Elm St &amp; 4th</span>
+          </li>
+          <li class="row is-selected" data-id="veh10">
+            <span class="row-dot"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4.5" fill="currentColor"></circle></svg></span>
+            <span class="row-main"><span class="row-name">Vehicle 10</span><div class="row-type">Ambulance &middot; ALS</div></span>
+            <span class="row-status"><b>En route</b>Mercy General</span>
+          </li>
+          <li class="row" data-id="veh12">
+            <span class="row-dot"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4.5"></circle></svg></span>
+            <span class="row-main"><span class="row-name">Vehicle 12</span><div class="row-type">Ambulance &middot; BLS</div></span>
+            <span class="row-status"><b>Available</b>Station 1</span>
+          </li>
+          <li class="row" data-id="veh15">
+            <span class="row-dot"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4.5"></circle><path d="M5 11 11 5"></path></svg></span>
+            <span class="row-main"><span class="row-name">Vehicle 15</span><div class="row-type">Rapid response</div></span>
+            <span class="row-status"><b>Out of service</b>Maintenance</span>
+          </li>
+          <li class="row" data-id="veh18">
+            <span class="row-dot"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4.5" fill="currentColor"></circle></svg></span>
+            <span class="row-main"><span class="row-name">Vehicle 18</span><div class="row-type">Ambulance &middot; ALS</div></span>
+            <span class="row-status"><b>En route</b>St. Anne's</span>
+          </li>
+          <li class="row" data-id="veh21">
+            <span class="row-dot"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4.5"></circle></svg></span>
+            <span class="row-main"><span class="row-name">Vehicle 21</span><div class="row-type">Ambulance &middot; BLS</div></span>
+            <span class="row-status"><b>Available</b>Station 3</span>
+          </li>
+          <li class="row" data-id="veh23">
+            <span class="row-dot"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4.5" fill="currentColor"></circle></svg></span>
+            <span class="row-main"><span class="row-name">Vehicle 23</span><div class="row-type">Ambulance &middot; ALS</div></span>
+            <span class="row-status"><b>At hospital</b>Mercy General</span>
+          </li>
+        </ul>
+      </section>
+    </div>
+
+    <div class="panel-col">
+      <!-- BEGIN DETAIL PANEL -->
+      <section class="panel" id="panel">
+        <div class="p-title">Vehicle 10</div>
+        <div class="p-status">Not available</div>
+      </section>
+      <!-- END DETAIL PANEL -->
+    </div>
+  </main>
+
+<script>
+(function () {
+  var DATA = {
+    veh04: { name: "Vehicle 04", status: "Available" },
+    veh07: { name: "Vehicle 07", status: "Not available" },
+    veh10: { name: "Vehicle 10", status: "Not available" },
+    veh12: { name: "Vehicle 12", status: "Available" },
+    veh15: { name: "Vehicle 15", status: "Not available" },
+    veh18: { name: "Vehicle 18", status: "Not available" },
+    veh21: { name: "Vehicle 21", status: "Available" },
+    veh23: { name: "Vehicle 23", status: "Not available" }
+  };
+
+  var panel = document.getElementById("panel");
+  var rows = document.querySelectorAll("#fleet .row");
+
+  function render(id) {
+    var v = DATA[id];
+    if (!v) return;
+    panel.innerHTML =
+      '<div class="p-title">' + v.name + '</div>' +
+      '<div class="p-status">' + v.status + '</div>';
+  }
+
+  for (var i = 0; i < rows.length; i++) {
+    rows[i].addEventListener("click", function () {
+      for (var j = 0; j < rows.length; j++) rows[j].classList.remove("is-selected");
+      this.classList.add("is-selected");
+      render(this.getAttribute("data-id"));
+    });
+  }
+})();
+</script>
+</body>
+</html>
