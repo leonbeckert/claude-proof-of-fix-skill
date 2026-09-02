@@ -16,6 +16,7 @@ Writes <issue_dir>/deliverable/variants/ and prints one relative path per line.
 Exit 0 = files written, 4 = skipped with a reason on stderr (never fatal for the
 caller: a presentation nicety must not turn a valid proof into a failed run).
 """
+import difflib
 import os
 import sys
 
@@ -72,6 +73,196 @@ def diff_mask(before, after, threshold=24):
     """
     d = ImageChops.difference(before, after).convert("L")
     return d.point(lambda p: 255 if p > threshold else 0)
+
+
+def diff_clusters(mask, cell=CELL, merge=MERGE_CELLS):
+    """Connected components of the diff mask, heaviest first.
+
+    getbbox() over the whole mask returns the union of everything that changed.
+    Two unrelated changes — the edited label, and a relative timestamp that ticked
+    over while the capture ran — then yield one box bracketing every untouched
+    element between them, and a reviewer reads that as "these changed too".
+    Components keep them apart.
+
+    Grouping happens on a coarse grid so a word is one cluster and not one per
+    glyph; the returned box is then re-measured on the full-resolution mask, so
+    the grid groups but never inflates.
+    """
+    w, h = mask.size
+    gw, gh = max(1, -(-w // cell)), max(1, -(-h // cell))
+    small = mask.resize((gw, gh), Image.BOX)
+    px = small.load()
+    sx, sy = w / float(gw), h / float(gh)
+    live = {(x, y) for y in range(gh) for x in range(gw) if px[x, y]}
+    seen, out = set(), []
+    for start in live:
+        if start in seen:
+            continue
+        stack, comp = [start], []
+        seen.add(start)
+        while stack:
+            cx, cy = stack.pop()
+            comp.append((cx, cy))
+            for dx in range(-merge, merge + 1):
+                for dy in range(-merge, merge + 1):
+                    nb = (cx + dx, cy + dy)
+                    if nb in live and nb not in seen:
+                        seen.add(nb)
+                        stack.append(nb)
+        xs, ys = [c[0] for c in comp], [c[1] for c in comp]
+        coarse = (int(min(xs) * sx), int(min(ys) * sy),
+                  min(w, int((max(xs) + 1) * sx) + 1), min(h, int((max(ys) + 1) * sy) + 1))
+        exact = mask.crop(coarse).getbbox()
+        if not exact:
+            continue
+        out.append((sum(px[x, y] for x, y in comp),
+                    (coarse[0] + exact[0], coarse[1] + exact[1],
+                     coarse[0] + exact[2], coarse[1] + exact[3])))
+    out.sort(key=lambda t: -t[0])
+    return out
+
+
+def merge_boxes(boxes, gap=MERGE_PX):
+    """Fuse expanded boxes that sit within the same region of the page.
+
+    Clustering answers "which pixels changed together". This answers the different
+    question "how many marks should a reviewer see". Seven rectangles down one
+    redesigned panel is not seven findings, it is one; two marks four hundred
+    pixels apart really are two. Merging is by edge distance, so boxes that touch
+    or nearly touch collapse and distant ones stay separate.
+    """
+    out = list(boxes)
+    fused = True
+    while fused:
+        fused = False
+        for i in range(len(out)):
+            for j in range(i + 1, len(out)):
+                a, b = out[i], out[j]
+                if (max(0, max(a[0], b[0]) - min(a[2], b[2])) <= gap
+                        and max(0, max(a[1], b[1]) - min(a[3], b[3])) <= gap):
+                    out[i] = (min(a[0], b[0]), min(a[1], b[1]),
+                              max(a[2], b[2]), max(a[3], b[3]))
+                    del out[j]
+                    fused = True
+                    break
+            if fused:
+                break
+    return sorted(out, key=lambda b: (b[1], b[0]))
+
+
+def select_clusters(clusters, keep_ratio=KEEP_RATIO):
+    """Split clusters into the ones worth marking and the ones that are noise.
+
+    Kept by share of the heaviest cluster, not by absolute size: what counts as
+    negligible depends on how big the real change is. The list is already sorted,
+    so the kept set is a prefix.
+    """
+    if not clusters:
+        return [], []
+    cut = keep_ratio * clusters[0][0]
+    keep = [c for c in clusters if c[0] >= cut]
+    return keep, clusters[len(keep):]
+
+
+def content_bottom(img, margin=24):
+    """Last row carrying content, so a mostly-empty page does not dominate the crop.
+
+    Dashboards are usually a short list on a tall viewport; keeping 500px of empty
+    background shrinks the interesting part of every stacked variant.
+    """
+    w, h = img.size
+    bg = img.getpixel((w - 4, h - 4))
+    px = img.load()
+    step = max(1, w // 240)
+    for y in range(h - 1, -1, -1):
+        for x in range(0, w, step):
+            p = px[x, y]
+            if abs(p[0] - bg[0]) + abs(p[1] - bg[1]) + abs(p[2] - bg[2]) > 24:
+                return min(h, y + margin)
+    return h
+
+
+def content_left(img, y0, y1, margin=8):
+    """First column carrying content within a horizontal band.
+
+    Bounds the focus crop. Cropping right of this cuts into the row itself, and
+    the row label is the context the cropped variant exists to supply.
+    """
+    w, h = img.size
+    bg = img.getpixel((w - 4, h - 4))
+    px = img.load()
+    y0, y1 = max(0, y0), min(h, y1)
+    step = max(1, (y1 - y0) // 200)
+    for x in range(w):
+        for y in range(y0, y1, step):
+            p = px[x, y]
+            if abs(p[0] - bg[0]) + abs(p[1] - bg[1]) + abs(p[2] - bg[2]) > 24:
+                return max(0, x - margin)
+    return 0
+
+
+def _row_signatures(img, quant=8, sample=2):
+    """Per-row fingerprint, tolerant to antialiasing jitter but not to real change.
+
+    Rows are compared as quantized grayscale bytes (steps of `quant`, i.e. sub-
+    threshold rendering noise collapses to the same signature) at half horizontal
+    resolution. A row whose signature is uniform is `blank` — background, gutters,
+    separators — and treated as accounted-for on both sides of the alignment.
+    """
+    w, h = img.size
+    g = img.convert("L").resize((max(1, w // sample), h), Image.BOX)
+    px = g.load()
+    gw = g.size[0]
+    sigs, blank = [], []
+    for y in range(h):
+        row = bytes(px[x, y] // quant for x in range(gw))
+        sigs.append(row)
+        blank.append(min(row) == max(row))
+    return sigs, blank
+
+
+def cancel_displacement(mask, before, after):
+    """Remove displacement ghosts from the diff mask before anything is weighted.
+
+    Inserting one line shifts every row below it. A positional diff then marks all
+    of that shifted-but-identical content as changed, and those ghost regions
+    outweigh the actual change by orders of magnitude — the cluster selection
+    inverts and marks exactly the elements nobody touched (observed on a back-link
+    insertion: the link weighed 1.5% of the heaviest ghost and was dropped).
+
+    Rows are aligned like a text diff: difflib matches the two row-signature
+    sequences, and a mask row is cancelled only when BOTH sides of it are
+    accounted for — its before-row matched somewhere in after (or is blank) AND
+    its after-row matched somewhere in before (or is blank). Content that is new,
+    removed, or edited in place stays unmatched on at least one side, so its rows
+    survive. Merely moved content is matched on both sides and drops out.
+
+    With no displacement this is a no-op by construction: rows equal at the same
+    y produce an empty positional diff anyway, and changed rows never match.
+    """
+    sb, blank_b = _row_signatures(before)
+    sa, blank_a = _row_signatures(after)
+    sm = difflib.SequenceMatcher(None, sb, sa, autojunk=False)
+    matched_b, matched_a = set(), set()
+    for m in sm.get_matching_blocks():
+        matched_b.update(range(m.a, m.a + m.size))
+        matched_a.update(range(m.b, m.b + m.size))
+    w, h = mask.size
+    cancelled = [(y in matched_b or blank_b[y]) and (y in matched_a or blank_a[y])
+                 for y in range(h)]
+    if not any(cancelled):
+        return mask
+    out = mask.copy()
+    d = ImageDraw.Draw(out)
+    run = None
+    for y in range(h + 1):
+        inside = y < h and cancelled[y]
+        if inside and run is None:
+            run = y
+        elif not inside and run is not None:
+            d.rectangle([0, run, w, y - 1], fill=0)
+            run = None
+    return out
 
 
 def diff_clusters(mask, cell=CELL, merge=MERGE_CELLS):
@@ -412,11 +603,21 @@ def build(issue_dir):
         return 4
 
     w, h = before.size
-    mask = diff_mask(before, after)
-    if mask.getbbox() is None:
+    raw = diff_mask(before, after)
+    if raw.getbbox() is None:
         print("variants skipped: before and after are pixel-identical — nothing to mark",
               file=sys.stderr)
         return 4
+
+    mask = cancel_displacement(raw, before, after)
+    if mask.getbbox() is None:
+        # Everything that differs is content that merely moved. That is not a
+        # reason to produce nothing: "more space between the rows" and "this panel
+        # moved" are real, visible changes. Cancellation exists to stop the shift
+        # from drowning an edit, so when the shift is ALL there is, mark it.
+        print("variants: the change is pure repositioning — no inserted, removed or "
+              "edited content, so the marks show what moved", file=sys.stderr)
+        mask = raw
 
     keep, dropped = select_clusters(diff_clusters(mask))
     # One expanded box per surviving cluster, then fused into regions. Drawn

@@ -311,7 +311,7 @@ check "failure screenshot captured" test -s "$TMP/.proof-of-fix/stepfail/before/
 check "error result points at the screenshot" grep -q "before/screenshot.png" "$RSF"
 check "no orphan webm left in the phase dir" bash -c "! ls $TMP/.proof-of-fix/stepfail/before/*.webm >/dev/null 2>&1"
 
-say "REG11 the mark is per region, not the union of every changed pixel"
+say "REG11 the mark is per region, and displacement does not drown the change"
 cat > "$TMP/measure_test.py" <<'PY'
 import os, sys
 sys.path.insert(0, os.environ["POF_BIN"])
@@ -326,8 +326,10 @@ def pair(paint_b, paint_a, size=(800, 600)):
 
 
 def marks(b, a):
+    """Mirror of build()'s measurement path — cancellation included."""
     w, h = b.size
-    keep, dropped = V.select_clusters(V.diff_clusters(V.diff_mask(b, a)))
+    keep, dropped = V.select_clusters(
+        V.diff_clusters(V.cancel_displacement(V.diff_mask(b, a), b, a)))
     grown = [V.pad_box(V.whole_lines(V.pad_box(x, w, h), a, w, h), w, h, 4, 4, 3, 3)
              for _, x in keep]
     return V.merge_boxes(grown), dropped
@@ -357,6 +359,55 @@ elif case == "gap1":
     for i in range(60, 80):
         quiet[i] = True
     assert V.edge_out(40, quiet, +1, 60, 1) == 50
+elif case == "insert":
+    # An inserted row shifts everything below it. Positionally every shifted row
+    # differs, and those ghosts outweigh the insertion by orders of magnitude —
+    # unfixed, the selection keeps the ghosts and drops the actual change.
+    def rows(items, step=40):
+        def paint(d):
+            for i, t in enumerate(items):
+                d.rectangle([40, 40 + i * step, 140, 40 + i * step + 22], fill=(40, 40, 40))
+                d.text((44, 44 + i * step), t, fill="white")
+        return paint
+    b, a = pair(rows(["A", "B", "C"]), rows(["NEW", "A", "B", "C"]))
+    raw = V.diff_mask(b, a)
+    cancelled = V.cancel_displacement(raw, b, a)
+    assert raw.getbbox()[3] > 150, raw.getbbox()          # ghosts reach down the page
+    assert cancelled.getbbox()[3] < 100, cancelled.getbbox()  # only the inserted row left
+    boxes, _ = marks(b, a)
+    assert len(boxes) == 1, boxes
+    assert boxes[0][1] < 70, boxes
+elif case == "edit_survives":
+    # The cancellation must not eat an edit that happens in place.
+    def rows(items):
+        def paint(d):
+            for i, t in enumerate(items):
+                d.rectangle([40, 40 + i * 40, 140, 40 + i * 40 + 22], fill=(40, 40, 40))
+                d.text((44, 44 + i * 40), t, fill="white")
+        return paint
+    b, a = pair(rows(["A", "B", "C"]), rows(["A", "X", "C"]))
+    raw = V.diff_mask(b, a)
+    assert V.cancel_displacement(raw, b, a).getbbox() == raw.getbbox()
+elif case == "moved_only":
+    # Content that only moved is still a visible change. Cancelling everything
+    # must fall back to the raw mask, not produce an empty variant set.
+    def rows(y0):
+        def paint(d):
+            for i, t in enumerate(["A", "B", "C"]):
+                d.rectangle([40, y0 + i * 40, 140, y0 + i * 40 + 22], fill=(40, 40, 40))
+                d.text((44, y0 + 4 + i * 40), t, fill="white")
+        return paint
+    b, a = pair(rows(40), rows(100))
+    raw = V.diff_mask(b, a)
+    assert V.cancel_displacement(raw, b, a).getbbox() is None  # nothing but displacement
+    import os as _os, shutil as _sh
+    d = _os.path.join(_os.environ["POF_ROOT"], ".proof-of-fix", "movedcase")
+    _sh.rmtree(d, ignore_errors=True)
+    for side, img in (("before", b), ("after", a)):
+        _os.makedirs(_os.path.join(d, side))
+        img.save(_os.path.join(d, side, "screenshot.png"))
+    assert V.build(d) == 0, "pure move must still produce variants"
+    assert _os.path.isfile(_os.path.join(d, "deliverable", "variants", "01-full-view.png"))
 elif case == "gap10":
     # A one-pixel quiet column is a glyph gap, not a component boundary: with a
     # width requirement the expansion walks past it to the real gutter.
@@ -367,7 +418,7 @@ elif case == "gap10":
     assert V.edge_out(40, quiet, +1, 60, 10) == 60
 PY
 export POF_BIN="$BIN"
-for c in distant region gap1 gap10; do
+for c in distant region gap1 gap10 insert edit_survives moved_only; do
   check "measurement: $c" python3 "$TMP/measure_test.py" "$c"
 done
 

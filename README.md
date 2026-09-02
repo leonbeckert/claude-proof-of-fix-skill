@@ -145,7 +145,7 @@ bash /path/to/your/project/.claude/skills/proof-of-fix/bin/selftest.sh
 Success is the final line:
 
 ```
-selftest: 84 passed, 0 failed
+selftest: 87 passed, 0 failed
 ```
 
 The selftest runs the real pipeline in a throwaway directory against four bundled static
@@ -278,8 +278,20 @@ that no supervisor process is left behind.
 ### The highlight is measured, not drawn
 
 `variants.py` thresholds the difference of the two screenshots at 24/255 to discard
-antialiasing noise, then splits the result into connected components rather than taking
-one bounding box over all of it. A single box would be the union of every changed pixel,
+antialiasing noise. Before anything is weighted, rows that merely moved are cancelled out:
+inserting one line shifts every row below it, and a positional diff marks all of that
+shifted-but-identical content as changed. Those ghosts outweigh the real change by orders
+of magnitude, so the selection inverts and marks precisely the elements nobody touched —
+measured on a back-link insertion, the link itself weighed 1.5% of the heaviest ghost.
+`cancel_displacement()` aligns the two row sequences the way a text diff aligns lines and
+drops a row only when both its before and its after side are accounted for elsewhere.
+Content that is new, removed or edited in place stays unmatched on one side and survives;
+with no displacement the step is a no-op by construction. When the displacement is all
+there is — more space between rows, a panel moved — the marks fall back to showing what
+moved, because that is a real change too.
+
+What remains is then split into connected components rather than taking one bounding box
+over all of it. A single box would be the union of every changed pixel,
 so an edited label and a relative timestamp that ticked over during the capture produce
 one tall rectangle bracketing every untouched element between them — and a reviewer reads
 that as "these changed too". Components far apart get their own mark; components below
@@ -334,7 +346,7 @@ validated, so a rejected request never moves the proof you are currently looking
 
 ## Limits
 
-The selftest is the evidence base: 84 checks over both capture modes, the annotated
+The selftest is the evidence base: 87 checks over both capture modes, the annotated
 stills, the verdict guards, the spec guard, role validation and the refuse path, plus
 twelve regression checks — each labelled with the finding it pins. It needs no
 application, so it runs against a fresh clone. Hash binding is checked by recomputing the
@@ -358,12 +370,13 @@ Known boundaries:
   stills. The stacked deliverable is still produced and `result.json` lists no variants.
 - `FORBIDDEN_ACTION` and `NOT_VISUALLY_DEMONSTRABLE` are enforced by the skill prompt and
   the `refuse` subcommand, not by `validate.py` or `finalize.py` like the other codes.
-- The diff is positional. Inserting an element shifts everything below it, and every
-  shifted row reads as changed, so a change that moves the page produces marks that are
-  correct but not specific. Aligning rows between the two screenshots before diffing would
-  fix it; that is not implemented.
+- Row alignment is per full-width row. In a two-column layout a change in one column makes
+  the whole row unmatched, so displacement in the other column is not cancelled. This errs
+  toward marking too much rather than too little.
 - There is no way to exclude a known-noisy region up front. Live clocks and spinners land
   in the diff and are handled after the fact, by being too light to mark.
+- Capture both phases against code that differs only in the change under review. Two fixes
+  in one `after` build produce two honest marks, and the zoom follows the heavier one.
 
 ## Repository layout
 
@@ -377,7 +390,7 @@ skills/proof-of-fix/          the capture skill
   bin/compose.sh              ffmpeg and ImageMagick composition
   bin/finalize.py             dimension gates, atomic result.json
   bin/variants.py             annotated stills generator
-  bin/selftest.sh             84 checks, no application required
+  bin/selftest.sh             87 checks, no application required
   demo/                       four static pages the selftest runs against
 skills/proof-of-fix-setup/    once-per-project onboarding
 docs/contract.md              request and result schema, error codes

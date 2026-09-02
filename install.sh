@@ -119,6 +119,6 @@ PY
 echo
 echo "next:"
 echo "  1. bash $TARGET/.claude/skills/proof-of-fix/bin/selftest.sh"
-echo "     84 checks against bundled static pages. Red here means stop."
+echo "     87 checks against bundled static pages. Red here means stop."
 echo "  2. In the project, run /proof-of-fix-setup once, with a human present."
 echo "     It writes .proof-of-fix/config.json and proves it with a live smoke capture."
